@@ -11,7 +11,7 @@ const uiLetter = document.getElementById("target-letter");
 const mainMenu = document.getElementById("main-menu");
 const gameWrapper = document.getElementById("game-wrapper");
 
-// --- 2. ASSET LOADER (Removed static background image) ---
+// --- 2. ASSET LOADER ---
 const imageUrls = {
     dumpling: 'public/assets/dumpling.png',
     hit: 'public/assets/hit.png',
@@ -54,15 +54,18 @@ let spawnTimer;
 
 const letters = "WASDEQ";
 
+// THIS HOLDS THE "UPCOMING" ITEM SO WE CAN SHOW IT BEFORE SHIFU THROWS
+let nextDrop = { isBomb: false, letter: 'A' };
+
 // --- 4. ENTITIES ---
 const GROUND_Y = 500;
 
 const player = {
     x: 300,
-    y: GROUND_Y - 130,
+    y: GROUND_Y - 110,
     w: 110,
     h: 130,
-    baseSpeed: 14, // Will scale up as game gets faster
+    baseSpeed: 14,
     autoMoveTarget: null,
     currentSprite: 'poIdle',
     actionTimer: 0
@@ -70,7 +73,7 @@ const player = {
 
 const master = {
     x: 1020,
-    y: 280,
+    y: 270,
     w: 130,
     h: 130,
     currentSprite: 'masterIdle',
@@ -79,7 +82,16 @@ const master = {
 
 const keysPressed = { ArrowLeft: false, ArrowRight: false };
 
-// --- 5. MENU CONTROLS & AUDIO PIPELINE ---
+// --- 5. PRE-WARNING LOGIC ---
+function rollNextDrop() {
+    const isBomb = Math.random() < 0.35;
+    nextDrop = {
+        isBomb: isBomb,
+        letter: isBomb ? null : letters[Math.floor(Math.random() * letters.length)]
+    };
+}
+
+// --- 6. MENU CONTROLS & AUDIO PIPELINE ---
 document.getElementById('btn-play').addEventListener('click', () => {
     mainMenu.style.display = 'none';
     gameWrapper.style.display = 'flex';
@@ -112,17 +124,21 @@ window.addEventListener('click', () => {
 }, { once: true });
 
 
-// --- 6. GAME LOGIC & PROGRESSIVE SPEED ---
+// --- 7. GAME LOGIC ---
 function updateUI() {
     uiHp.innerText = hp;
     uiScore.innerText = score;
     uiLvl.innerText = currentLevel;
     uiGoal.innerText = `${caughtInLevel}/${levelGoal}`;
 
+    // Show the active falling letter, or if none, show the upcoming one
     const activeDumpling = entities.find(e => e.type === 'dumpling');
     if (activeDumpling && gameState === "PLAYING") {
         uiLetter.innerText = activeDumpling.letter;
         uiLetter.style.color = "#ffd700";
+    } else if (gameState === "PLAYING" && !nextDrop.isBomb) {
+        uiLetter.innerText = nextDrop.letter + " (Wait...)";
+        uiLetter.style.color = "#888"; // Gray out until thrown
     } else {
         uiLetter.innerText = "-";
         uiLetter.style.color = "#fff";
@@ -132,15 +148,12 @@ function updateUI() {
 function spawnEntity() {
     if (gameState !== "PLAYING") return;
 
-    // SCALING DIFFICULTY: Increases based on score AND current level
     const dynamicDifficulty = currentLevel + (score / 40);
+    const isBomb = nextDrop.isBomb;
 
-    const isBomb = Math.random() < 0.35;
-
-    // As difficulty goes up, flight time drops (objects move faster)
-    // Capped at 25 frames so it never becomes mathematically impossible
-    const flightTime = Math.max(25, 70 - (dynamicDifficulty * 4.5));
-    const gravity = 0.4 + (dynamicDifficulty * 0.05);
+    // Slightly slowed down base speed so you have time to react early on
+    const flightTime = Math.max(30, 90 - (dynamicDifficulty * 5));
+    const gravity = 0.3 + (dynamicDifficulty * 0.04);
 
     let landingX;
     if (isBomb) {
@@ -155,10 +168,10 @@ function spawnEntity() {
 
     const startX = master.x;
     const startY = master.y + 40;
-
     const vx = (landingX - startX) / flightTime;
     const vy = (GROUND_Y - startY - 0.5 * gravity * flightTime * flightTime) / flightTime;
 
+    // Use the pre-rolled drop
     entities.push({
         x: startX,
         y: startY,
@@ -167,13 +180,15 @@ function spawnEntity() {
         gravity: gravity,
         landingX: landingX,
         type: isBomb ? 'bomb' : 'dumpling',
-        letter: isBomb ? null : letters[Math.floor(Math.random() * letters.length)]
+        letter: nextDrop.letter
     });
 
     master.currentSprite = 'masterThrow';
     master.actionTimer = 25;
 
-    // Time between throws gets shorter
+    // Roll the NEXT drop immediately so the player can see it during the delay
+    rollNextDrop();
+
     let nextSpawn = Math.max(450, 2000 - (dynamicDifficulty * 180));
     spawnTimer = setTimeout(spawnEntity, nextSpawn);
 }
@@ -184,7 +199,7 @@ function triggerShake() {
     container.classList.add('shake');
 }
 
-// --- 7. INPUT HANDLING ---
+// --- 8. INPUT HANDLING ---
 window.addEventListener("keydown", (e) => {
     if (gameState === "MENU") return;
 
@@ -193,14 +208,17 @@ window.addEventListener("keydown", (e) => {
 
     if (gameState === "START" || gameState === "WIN_ANIM" || gameState === "FAIL_ANIM") {
         if (gameState === "WIN_ANIM") { currentLevel++; levelGoal += 2; }
-        else if (gameState === "FAIL_ANIM") { score = 0; currentLevel = 1; levelGoal = 8; } // Reset stats on fail
+        else if (gameState === "FAIL_ANIM") { score = 0; currentLevel = 1; levelGoal = 8; }
 
         caughtInLevel = 0; entities = []; hp = 100;
         player.currentSprite = 'poIdle';
         player.autoMoveTarget = null;
         gameState = "PLAYING";
+
+        // Setup the very first preview drop before throwing
+        rollNextDrop();
         clearTimeout(spawnTimer);
-        spawnEntity();
+        spawnTimer = setTimeout(spawnEntity, 1000); // Give player 1 second to read the first drop
         updateUI();
         return;
     }
@@ -212,7 +230,6 @@ window.addEventListener("keydown", (e) => {
         if (targetDumplings.length > 0) {
             targetDumplings.sort((a, b) => b.y - a.y);
             const target = targetDumplings[0];
-
             player.autoMoveTarget = target.landingX - (player.w / 2);
             player.currentSprite = 'poPose2';
         }
@@ -224,15 +241,12 @@ window.addEventListener("keyup", (e) => {
     if (e.key === "ArrowRight") keysPressed.ArrowRight = false;
 });
 
-// --- 8. MAIN GAME LOOP ---
+// --- 9. MAIN GAME LOOP ---
 function update() {
     if (gameState === "MENU" || imagesLoaded < totalImages) return;
 
-    // Only clear the canvas. DO NOT draw the background image anymore,
-    // so the video behind it is visible!
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Calculate dynamic player speed so Po can keep up with the faster game
     const currentSpeed = player.baseSpeed + (score / 30);
 
     // --- PLAYER MOVEMENT SYSTEM ---
@@ -244,7 +258,6 @@ function update() {
         }
         else if (player.autoMoveTarget !== null) {
             const distance = player.autoMoveTarget - player.x;
-
             if (Math.abs(distance) <= currentSpeed) {
                 player.x = player.autoMoveTarget;
                 player.autoMoveTarget = null;
@@ -271,6 +284,25 @@ function update() {
 
     // --- DRAW CHARACTERS ---
     ctx.drawImage(IMAGES[master.currentSprite], master.x, master.y, master.w, master.h);
+
+    // === NEW: DRAW PRE-WARNING THOUGHT BUBBLE ===
+    if (gameState === "PLAYING" && master.actionTimer <= 0) {
+        // Draw the black background box
+        ctx.fillStyle = "rgba(0, 0, 0, 0.75)";
+        ctx.fillRect(master.x + 20, master.y - 50, 100, 40);
+
+        // Draw border (Red for Bomb, Gold for Dumpling)
+        ctx.strokeStyle = nextDrop.isBomb ? "#ff4757" : "#ffd700";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(master.x + 20, master.y - 50, 100, 40);
+
+        // Draw the text
+        ctx.fillStyle = nextDrop.isBomb ? "#ff4757" : "#ffd700";
+        ctx.font = "bold 20px Courier New";
+        ctx.textAlign = "center";
+        ctx.fillText(nextDrop.isBomb ? "BOMB!" : "NEXT: " + nextDrop.letter, master.x + 70, master.y - 23);
+    }
+
     ctx.drawImage(IMAGES[player.currentSprite], player.x, player.y, player.w, player.h);
 
     if (gameState === "PLAYING") {
@@ -295,7 +327,6 @@ function update() {
                 ctx.beginPath(); ctx.moveTo(e.x, e.y - 22); ctx.lineTo(e.x + 10, e.y - 35); ctx.stroke();
             } else {
                 ctx.drawImage(IMAGES.dumpling, e.x - 30, e.y - 30, 60, 60);
-
                 ctx.fillStyle = "white";
                 ctx.font = "bold 24px Arial";
                 ctx.textAlign = "center";
@@ -305,7 +336,7 @@ function update() {
                 ctx.fillText(e.letter, e.x, e.y + 8);
             }
 
-            // --- HIT DETECTION / CATCHING ---
+            // --- HIT DETECTION ---
             if (e.y >= GROUND_Y) {
                 const poCenterX = player.x + (player.w / 2);
 
