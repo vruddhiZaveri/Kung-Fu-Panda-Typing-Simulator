@@ -1,97 +1,187 @@
 body {
     margin: 0;
-    padding: 0;
-    background-color: #222;
+    background: #111;
     display: flex;
+    flex-direction: column;
     justify-content: center;
     align-items: center;
     height: 100vh;
-    font-family: 'Courier New', Courier, monospace;
     color: white;
-}
-
-.game-container {
-    position: relative;
-    width: 800px;
-    height: 600px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
+    font-family: 'Courier New', Courier, monospace;
     overflow: hidden;
 }
 
-canvas {
-    display: block;
-    background-color: #557A46;
-    /* Fallback forest green */
+/* --- MAIN MENU UI --- */
+#main-menu {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: #000;
+    z-index: 100;
+    display: flex;
+    justify-content: center;
+    align-items: center;
 }
 
-/* UI Overlay */
-#ui-layer {
+#menu-video {
     position: absolute;
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
-    pointer-events: none;
-    /* Let clicks pass through to canvas if needed */
+    object-fit: cover;
+    z-index: -1;
+    opacity: 0.4;
 }
 
-.stats {
-    display: flex;
-    justify-content: space-between;
-    padding: 15px 25px;
+.menu-content {
+    text-align: center;
+    background: rgba(0, 0, 0, 0.7);
+    padding: 50px 80px;
+    border: 4px solid #d4af37;
+    border-radius: 15px;
+    box-shadow: 0 0 30px rgba(212, 175, 55, 0.3);
+}
+
+.menu-content h1 {
+    font-size: 64px;
+    color: #ffd700;
+    margin-top: 0;
+    text-shadow: 2px 2px 10px #000;
+}
+
+.menu-btn {
+    display: block;
+    width: 100%;
+    margin: 20px 0;
+    padding: 15px;
     font-size: 24px;
     font-weight: bold;
-    text-shadow: 2px 2px 4px #000;
+    font-family: 'Courier New', Courier, monospace;
+    color: #fff;
+    background: #333;
+    border: 3px solid #fff;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
 }
 
-#gameOverScreen {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background: rgba(0, 0, 0, 0.85);
-    padding: 40px;
-    border-radius: 15px;
+.menu-btn:hover {
+    background: #ffd700;
+    color: #000;
+    border-color: #ffd700;
+    transform: scale(1.05);
+}
+
+/* --- GAME UI --- */
+#game-wrapper {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+}
+
+#game-header {
+    width: 1200px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    margin-bottom: 15px;
+}
+
+.hud-box {
+    background: #222;
+    border: 3px solid #d4af37;
+    border-radius: 8px;
+    padding: 10px 20px;
+    font-size: 20px;
+    font-weight: bold;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.5);
+}
+
+#target-ui {
     text-align: center;
-    border: 3px solid white;
+    background: #1a1a1a;
+    border: 4px solid #ffd700;
+    border-radius: 12px;
+    padding: 15px 40px;
+    box-shadow: 0 0 20px rgba(255, 215, 0, 0.4);
 }
 
-#gameOverScreen h1 {
-    color: #ff4757;
-    margin-top: 0;
+#target-ui span {
+    display: block;
+    font-size: 14px;
+    color: #aaa;
+    margin-bottom: 5px;
 }
 
-.hidden {
-    display: none !important;
+#target-letter {
+    font-size: 48px;
+    color: #fff;
+    text-shadow: 0 0 10px #fff;
 }
 
-/* Screen Shake Animation */
+/* NEW CONTAINER & VIDEO STYLING */
+#game-container {
+    position: relative;
+    width: 1200px;
+    height: 600px;
+    border: 6px solid #d4af37;
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
+    overflow: hidden;
+    background: #000;
+    /* Fallback if video fails */
+}
+
+#env-video {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    /* Ensures video scales nicely */
+    z-index: 0;
+}
+
+canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: block;
+    background: transparent;
+    /* Makes canvas see-through to video */
+    z-index: 1;
+}
+
 @keyframes shake {
     0% {
-        transform: translate(1px, 1px) rotate(0deg);
+        transform: translate(3px, 3px) rotate(0deg);
     }
 
     20% {
-        transform: translate(-3px, 0px) rotate(1deg);
+        transform: translate(-5px, 0px) rotate(1deg);
     }
 
     40% {
-        transform: translate(1px, -2px) rotate(-1deg);
+        transform: translate(3px, -4px) rotate(-1deg);
     }
 
     60% {
-        transform: translate(-3px, 1px) rotate(0deg);
+        transform: translate(-5px, 3px) rotate(0deg);
     }
 
     80% {
-        transform: translate(-1px, -1px) rotate(1deg);
+        transform: translate(-3px, -3px) rotate(1deg);
     }
 
     100% {
-        transform: translate(1px, -2px) rotate(-1deg);
+        transform: translate(3px, -4px) rotate(-1deg);
     }
 }
 
 .shake {
-    animation: shake 0.3s;
+    animation: shake 0.3s cubic-bezier(.36, .07, .19, .97) both;
 }

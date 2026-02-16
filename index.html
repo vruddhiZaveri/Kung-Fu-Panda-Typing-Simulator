@@ -4,263 +4,52 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Po's Noodle Quest: Master Shifu's Training</title>
-    <style>
-        body {
-            margin: 0;
-            background: #1a1a1a;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            color: white;
-            font-family: 'Courier New', Courier, monospace;
-            overflow: hidden;
-        }
-
-        #game-container {
-            position: relative;
-            border: 4px solid #d4af37;
-            box-shadow: 0 0 20px rgba(212, 175, 55, 0.4);
-        }
-
-        canvas {
-            display: block;
-            background: #87CEEB;
-        }
-    </style>
+    <title>Dumpling Dash</title>
+    <link rel="stylesheet" href="style.css">
 </head>
 
 <body>
 
-    <div id="game-container">
-        <canvas id="gameCanvas" width="800" height="400"></canvas>
+    <div id="main-menu">
+        <video id="menu-video" autoplay loop muted playsinline>
+            <source src="public/assets/YOUR_VIDEO_FILE.mp4" type="video/mp4">
+        </video>
+
+        <div class="menu-content" id="menu-box">
+            <h1>DUMPLING DASH</h1>
+            <button class="menu-btn" id="btn-play">PLAY GAME</button>
+            <button class="menu-btn" id="btn-exit">EXIT</button>
+        </div>
     </div>
 
-    <script>
-        const canvas = document.getElementById("gameCanvas");
-        const ctx = canvas.getContext("2d");
+    <div id="game-wrapper">
+        <div id="game-header">
+            <div class="hud-box">
+                <span style="color: #ff4757;">HP: <span id="hp-val">100</span>%</span><br>
+                <span style="color: #2ed573;">SCORE: <span id="score-val">0</span></span>
+            </div>
 
-        // --- GAME STATE ---
-        let score = 0;
-        let hp = 100;
-        let entities = [];
-        let particles = [];
-        let currentLevel = 1;
-        let caughtInLevel = 0;
-        let levelGoal = 8;
-        let gameState = "START"; // START, PLAYING, WIN_ANIM, FAIL_ANIM
-        let spawnTimer;
+            <div id="target-ui">
+                <span>INCOMING DUMPLING</span>
+                <div id="target-letter">-</div>
+            </div>
 
-        const letters = "QWERTYUIOPASDFGHJKLZXCVBNM";
-        const hitZoneX = 120;
+            <div class="hud-box" style="text-align: right;">
+                LVL: <span id="lvl-val">1</span><br>
+                TARGET: <span id="goal-val">0/8</span>
+            </div>
+        </div>
 
-        // --- PLAYER (PO) OBJECT ---
-        const player = {
-            x: hitZoneX,
-            y: 250,
-            baseY: 250,
-            w: 60,
-            h: 80,
-            vy: 0,
-            jumpForce: -16, // High launch
-            gravity: 0.9,   // Fast fall
-            isJumping: false
-        };
+        <div id="game-container">
+            <video id="env-video" autoplay loop muted playsinline>
+                <source src="public/assets/environment.mp4" type="video/mp4">
+            </video>
 
-        // --- CHERRY BLOSSOM PARTICLES ---
-        function createPetal() {
-            if (Math.random() > 0.1) return;
-            particles.push({
-                x: Math.random() * canvas.width,
-                y: -10,
-                size: Math.random() * 5 + 2,
-                speed: Math.random() * 1 + 0.5,
-                wind: Math.random() * 0.5
-            });
-        }
+            <canvas id="gameCanvas" width="1200" height="600"></canvas>
+        </div>
+    </div>
 
-        function spawnEntity() {
-            if (gameState !== "PLAYING") return;
-
-            const isBomb = Math.random() < 0.3;
-            // Bombs move faster than dumplings to ensure they clear Po during a jump
-            const baseSpeed = 2.5 + (currentLevel * 0.5);
-            const speed = isBomb ? baseSpeed + 3.5 : baseSpeed;
-
-            entities.push({
-                x: canvas.width + 50,
-                y: isBomb ? 320 : 270,
-                speed: speed,
-                letter: isBomb ? null : letters[Math.floor(Math.random() * 26)],
-                type: isBomb ? 'bomb' : 'dumpling'
-            });
-
-            let nextSpawn = Math.max(700, 2500 - (currentLevel * 200));
-            spawnTimer = setTimeout(spawnEntity, nextSpawn);
-        }
-
-        // --- INPUT HANDLING ---
-        window.addEventListener("keydown", (e) => {
-            const pressed = e.key.toUpperCase();
-
-            if (gameState === "START") {
-                gameState = "PLAYING";
-                spawnEntity();
-                return;
-            }
-
-            // Jump Action
-            if (e.code === "Space" && !player.isJumping && gameState === "PLAYING") {
-                player.vy = player.jumpForce;
-                player.isJumping = true;
-            }
-
-            // Level Transition Logic
-            if (gameState === "WIN_ANIM" || gameState === "FAIL_ANIM") {
-                if (gameState === "WIN_ANIM") {
-                    currentLevel++;
-                    levelGoal += 2;
-                }
-                caughtInLevel = 0;
-                entities = [];
-                hp = 100;
-                gameState = "PLAYING";
-                clearTimeout(spawnTimer);
-                spawnEntity();
-                return;
-            }
-
-            // Catching Logic (Look for the first dumpling on screen)
-            const target = entities.find(ent => ent.type === 'dumpling');
-            if (target && pressed === target.letter) {
-                // Po can only catch it if it's in the "Active Zone" (left half of screen)
-                if (target.x < 500 && target.x > 50) {
-                    entities.splice(entities.indexOf(target), 1);
-                    caughtInLevel++;
-                    if (caughtInLevel >= levelGoal) gameState = "WIN_ANIM";
-                }
-            }
-        });
-
-        function drawScene() {
-            // Sky and Grass
-            ctx.fillStyle = "#87CEEB"; ctx.fillRect(0, 0, 800, 400);
-            ctx.fillStyle = "#4CAF50"; ctx.fillRect(0, 350, 800, 50);
-
-            // Peach Tree (Right)
-            ctx.fillStyle = "#5D4037"; ctx.fillRect(canvas.width - 60, 150, 20, 200);
-            ctx.fillStyle = "#FFB7C5"; ctx.beginPath(); ctx.arc(canvas.width - 50, 150, 60, 0, Math.PI * 2); ctx.fill();
-
-            // Cherry Blossoms
-            createPetal();
-            particles.forEach((p, i) => {
-                p.y += p.speed; p.x -= p.wind;
-                ctx.fillStyle = "#FFB7C5";
-                ctx.fillRect(p.x, p.y, p.size, p.size);
-                if (p.y > canvas.height) particles.splice(i, 1);
-            });
-        }
-
-        function update() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            drawScene();
-
-            // --- PLAYER PHYSICS ---
-            if (player.isJumping) {
-                player.y += player.vy;
-                player.vy += player.gravity;
-                if (player.y >= player.baseY) {
-                    player.y = player.baseY;
-                    player.isJumping = false;
-                }
-            }
-
-            // Draw Shadow
-            const shadowSize = 30 - ((player.baseY - player.y) * 0.1);
-            ctx.fillStyle = "rgba(0,0,0,0.2)";
-            ctx.beginPath();
-            ctx.ellipse(player.x + 30, player.baseY + 80, Math.max(5, shadowSize), 10, 0, 0, Math.PI * 2);
-            ctx.fill();
-
-            // Draw Po (The Panda)
-            ctx.fillStyle = "#333";
-            ctx.fillRect(player.x, player.y, player.w, player.h); // Body
-            ctx.fillStyle = "white";
-            ctx.fillRect(player.x + 10, player.y + 10, 40, 40); // Tummy/Face area
-
-            if (gameState === "PLAYING") {
-                // --- CENTRAL HUD LETTER ---
-                const targetDumpling = entities.find(ent => ent.type === 'dumpling');
-                if (targetDumpling) {
-                    ctx.fillStyle = "black";
-                    ctx.font = "bold 70px Arial";
-                    ctx.textAlign = "center";
-                    ctx.fillText(targetDumpling.letter, 400, 100);
-                    ctx.font = "14px Arial";
-                    ctx.fillText("NEXT KEY", 400, 130);
-                }
-
-                for (let i = entities.length - 1; i >= 0; i--) {
-                    let e = entities[i];
-                    e.x -= e.speed;
-
-                    // Draw Entities
-                    ctx.fillStyle = e.type === 'bomb' ? "#ff4444" : "white";
-                    ctx.beginPath();
-                    ctx.arc(e.x, e.y, e.type === 'bomb' ? 12 : 20, 0, Math.PI * 2);
-                    ctx.fill();
-
-                    // COLLISION: Bomb hits Po
-                    // Logic: Horizontal overlap AND Po is near the ground
-                    let horizontalMatch = e.x > player.x && e.x < player.x + player.w;
-                    let verticalMatch = (player.y + player.h) > (e.y - 10);
-
-                    if (horizontalMatch && verticalMatch && e.type === 'bomb') {
-                        gameState = "FAIL_ANIM";
-                    }
-
-                    // Missed Dumpling
-                    if (e.x < 0) {
-                        if (e.type === 'dumpling') {
-                            hp -= 20;
-                            if (hp <= 0) gameState = "FAIL_ANIM";
-                        }
-                        entities.splice(i, 1);
-                    }
-                }
-            }
-
-            // HUD
-            ctx.fillStyle = "black"; ctx.font = "bold 18px Courier"; ctx.textAlign = "left";
-            ctx.fillText(`LVL: ${currentLevel} | ZEN: ${hp}% | CAUGHT: ${caughtInLevel}/${levelGoal}`, 20, 30);
-
-            // SCREENS
-            if (gameState === "START") {
-                ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillRect(0, 0, 800, 400);
-                ctx.fillStyle = "white"; ctx.textAlign = "center";
-                ctx.font = "30px Arial"; ctx.fillText("PO'S NOODLE TRAINING", 400, 180);
-                ctx.font = "18px Arial"; ctx.fillText("Press any LETTER to Start", 400, 220);
-                ctx.fillText("Letters = Catch | Space = Jump Bombs", 400, 250);
-            }
-            if (gameState === "WIN_ANIM") {
-                ctx.fillStyle = "rgba(255,255,255,0.9)"; ctx.fillRect(0, 0, 800, 400);
-                ctx.fillStyle = "black"; ctx.textAlign = "center";
-                ctx.font = "40px Arial"; ctx.fillText("🍜 LEVEL COMPLETE! 🍜", 400, 200);
-                ctx.font = "20px Arial"; ctx.fillText("Po gets his noodles! Press any key for next level.", 400, 250);
-            }
-            if (gameState === "FAIL_ANIM") {
-                ctx.fillStyle = "rgba(0,0,0,0.85)"; ctx.fillRect(0, 0, 800, 400);
-                ctx.fillStyle = "white"; ctx.textAlign = "center";
-                ctx.font = "40px Arial"; ctx.fillText("SHIFU BONK! 🥖", 400, 200);
-                ctx.font = "20px Arial"; ctx.fillText("You must jump the bombs! Press any key to retry.", 400, 250);
-            }
-
-            requestAnimationFrame(update);
-        }
-
-        update();
-    </script>
+    <script src="script.js"></script>
 </body>
 
 </html>

@@ -1,262 +1,373 @@
-/**
- * PANDA DUMPLING CATCH - Hackathon Build
- */
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+const container = document.getElementById("game-container");
 
-// --- ASSET HOOKS ---
-// Drop your generated images in the folder and add their filenames here.
-// The game will automatically switch from drawing shapes to drawing images!
-const ASSETS = {
-    bg: new Image(),
-    panda: new Image(),
-    dumpling: new Image()
-};
-ASSETS.bg.src = '';       // e.g., 'bg.png'
-ASSETS.panda.src = '';    // e.g., 'panda.png'
-ASSETS.dumpling.src = ''; // e.g., 'dumpling.png'
+// --- 1. DOM UI ELEMENTS ---
+const uiHp = document.getElementById("hp-val");
+const uiScore = document.getElementById("score-val");
+const uiLvl = document.getElementById("lvl-val");
+const uiGoal = document.getElementById("goal-val");
+const uiLetter = document.getElementById("target-letter");
+const mainMenu = document.getElementById("main-menu");
+const gameWrapper = document.getElementById("game-wrapper");
 
-// --- CONSTANTS & SETUP ---
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
-const container = document.querySelector('.game-container');
-
-const KEYS = ['A', 'S', 'D'];
-const LANES = [200, 400, 600]; // X coordinates for lanes
-const EAT_ZONE_Y = 450;
-const EAT_ZONE_HEIGHT = 80;
-
-// --- GAME STATE ---
-let state = {
-    hp: 3,
-    score: 0,
-    streak: 0,
-    dumplings: [],
-    isGameOver: false,
-    lastTime: 0,
-    spawnTimer: 0,
-    currentSpawnRate: 2000, // ms between spawns
-    baseFallSpeed: 150      // pixels per second
+// --- 2. ASSET LOADER (Removed static background image) ---
+const imageUrls = {
+    dumpling: 'public/assets/dumpling.png',
+    hit: 'public/assets/hit.png',
+    masterIdle: 'public/assets/master/master_pose1.png',
+    masterThrow: 'public/assets/master/master_pose2.png',
+    poIdle: 'public/assets/panda/panda_idle.png',
+    poPose1: 'public/assets/panda/panda_pose1.png',
+    poPose2: 'public/assets/panda/panda_pose2.png',
+    poHurt: 'public/assets/panda/panda_hurt.png'
 };
 
-// --- AUDIO SYNTHESIZER (No external files needed!) ---
-const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-function playTone(freq, type, duration, vol = 0.1) {
-    if (audioCtx.state === 'suspended') audioCtx.resume();
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.type = type;
-    osc.frequency.value = freq;
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    osc.start();
-    gain.gain.setValueAtTime(vol, audioCtx.currentTime);
-    gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + duration);
-    osc.stop(audioCtx.currentTime + duration);
+const IMAGES = {};
+let imagesLoaded = 0;
+const totalImages = Object.keys(imageUrls).length;
+
+for (let key in imageUrls) {
+    IMAGES[key] = new Image();
+    IMAGES[key].onload = () => { imagesLoaded++; };
+    IMAGES[key].src = imageUrls[key];
 }
-const sfx = {
-    hit: () => playTone(600, 'sine', 0.1),
-    eat: () => { playTone(800, 'square', 0.1); playTone(1200, 'sine', 0.15); },
-    miss: () => playTone(150, 'sawtooth', 0.3, 0.3)
+
+// AUDIO SETUP
+const AUDIO = {
+    menuBgm: new Audio('public/assets/menu_bgm.mp3'),
+    gameBgm: new Audio('public/assets/game_bgm.mp3'),
+    shifuYell: new Audio('public/assets/shifu_yell.mp3')
+};
+AUDIO.menuBgm.loop = true;
+AUDIO.gameBgm.loop = true;
+
+// --- 3. GAME STATE ---
+let score = 0;
+let hp = 100;
+let entities = [];
+let currentLevel = 1;
+let caughtInLevel = 0;
+let levelGoal = 8;
+let gameState = "MENU";
+let spawnTimer;
+
+const letters = "WASDEQ";
+
+// --- 4. ENTITIES ---
+const GROUND_Y = 500;
+
+const player = {
+    x: 300,
+    y: GROUND_Y - 130,
+    w: 110,
+    h: 130,
+    baseSpeed: 14, // Will scale up as game gets faster
+    autoMoveTarget: null,
+    currentSprite: 'poIdle',
+    actionTimer: 0
 };
 
-// --- GAME MECHANICS ---
+const master = {
+    x: 1020,
+    y: 280,
+    w: 130,
+    h: 130,
+    currentSprite: 'masterIdle',
+    actionTimer: 0
+};
 
-function spawnDumpling() {
-    const laneIndex = Math.floor(Math.random() * 3);
+const keysPressed = { ArrowLeft: false, ArrowRight: false };
 
-    // Difficulty scaling: Longer combos based on score
-    let comboLength = 1;
-    if (state.score > 20) comboLength = Math.random() > 0.5 ? 3 : 2;
-    else if (state.score > 5) comboLength = Math.random() > 0.5 ? 2 : 1;
+// --- 5. MENU CONTROLS & AUDIO PIPELINE ---
+document.getElementById('btn-play').addEventListener('click', () => {
+    mainMenu.style.display = 'none';
+    gameWrapper.style.display = 'flex';
+    gameState = "START";
 
-    let combo = [KEYS[laneIndex]]; // First key always matches the lane
-    for (let i = 1; i < comboLength; i++) {
-        combo.push(KEYS[Math.floor(Math.random() * 3)]);
-    }
+    AUDIO.menuBgm.pause();
+    AUDIO.gameBgm.currentTime = 0;
+    AUDIO.gameBgm.play();
 
-    state.dumplings.push({
-        x: LANES[laneIndex],
-        y: -50,
-        combo: combo,
-        progress: 0 // How many keys of the combo have been pressed
-    });
-}
-
-function handleEat() {
-    sfx.eat();
-    state.score += 10 + (state.streak * 2); // Streak multiplier
-    state.streak++;
-    updateUI();
-
-    // Increase difficulty
-    state.currentSpawnRate = Math.max(600, 2000 - (state.score * 10));
-    state.baseFallSpeed = Math.min(400, 150 + (state.score * 2));
-}
-
-function handleMiss() {
-    if (state.isGameOver) return;
-    sfx.miss();
-    state.hp--;
-    state.streak = 0;
-    updateUI();
-
-    // Trigger CSS screen shake
-    container.classList.remove('shake');
-    void container.offsetWidth; // Trigger reflow to restart animation
-    container.classList.add('shake');
-
-    if (state.hp <= 0) {
-        state.isGameOver = true;
-        document.getElementById('gameOverScreen').classList.remove('hidden');
-        document.getElementById('finalScore').innerText = state.score;
-    }
-}
-
-function updateUI() {
-    document.getElementById('hpDisplay').innerText = state.hp;
-    document.getElementById('scoreDisplay').innerText = state.score;
-    document.getElementById('streakDisplay').innerText = state.streak;
-}
-
-function restartGame() {
-    state = {
-        hp: 3, score: 0, streak: 0, dumplings: [],
-        isGameOver: false, lastTime: performance.now(),
-        spawnTimer: 0, currentSpawnRate: 2000, baseFallSpeed: 150
-    };
-    document.getElementById('gameOverScreen').classList.add('hidden');
-    updateUI();
-    requestAnimationFrame(gameLoop);
-}
-
-// --- INPUT HANDLING ---
-window.addEventListener('keydown', (e) => {
-    let key = e.key.toUpperCase();
-
-    if (state.isGameOver) {
-        if (key === 'R') restartGame();
-        return;
-    }
-
-    if (!KEYS.includes(key)) return;
-
-    // Find dumplings inside the eat zone
-    let inZone = state.dumplings.filter(d =>
-        d.y + 25 >= EAT_ZONE_Y && d.y - 25 <= EAT_ZONE_Y + EAT_ZONE_HEIGHT
-    );
-
-    if (inZone.length === 0) return; // Don't penalize if nothing is near
-
-    // Find the lowest dumpling that requires this key next
-    inZone.sort((a, b) => b.y - a.y);
-    let target = inZone.find(d => d.combo[d.progress] === key);
-
-    if (target) {
-        target.progress++;
-        if (target.progress === target.combo.length) {
-            // Combo complete! Remove dumpling and eat
-            state.dumplings = state.dumplings.filter(d => d !== target);
-            handleEat();
-        } else {
-            // Partial combo hit
-            sfx.hit();
-        }
+    if (imagesLoaded === totalImages) {
+        update();
     } else {
-        // Pressed a valid game key, but it was the wrong combo step
-        handleMiss();
+        const checkLoad = setInterval(() => {
+            if (imagesLoaded === totalImages) {
+                clearInterval(checkLoad);
+                update();
+            }
+        }, 100);
     }
 });
 
-// --- RENDER & UPDATE LOOP ---
-function gameLoop(timestamp) {
-    if (state.isGameOver) return;
+document.getElementById('btn-exit').addEventListener('click', () => {
+    document.getElementById('menu-box').innerHTML = '<h2 style="color:white; font-size:40px;">Thanks for playing!</h2>';
+});
 
-    const deltaTime = (timestamp - state.lastTime) / 1000; // in seconds
-    state.lastTime = timestamp;
-
-    // 1. Update logic
-    state.spawnTimer += deltaTime * 1000;
-    if (state.spawnTimer >= state.currentSpawnRate) {
-        spawnDumpling();
-        state.spawnTimer = 0;
+window.addEventListener('click', () => {
+    if (gameState === "MENU" && AUDIO.menuBgm.paused) {
+        AUDIO.menuBgm.play();
     }
+}, { once: true });
 
-    for (let i = state.dumplings.length - 1; i >= 0; i--) {
-        let d = state.dumplings[i];
-        d.y += state.baseFallSpeed * deltaTime;
 
-        // Check if missed (fell past the eat zone)
-        if (d.y > EAT_ZONE_Y + EAT_ZONE_HEIGHT + 30) {
-            state.dumplings.splice(i, 1);
-            handleMiss();
-        }
-    }
+// --- 6. GAME LOGIC & PROGRESSIVE SPEED ---
+function updateUI() {
+    uiHp.innerText = hp;
+    uiScore.innerText = score;
+    uiLvl.innerText = currentLevel;
+    uiGoal.innerText = `${caughtInLevel}/${levelGoal}`;
 
-    // 2. Draw Background
-    if (ASSETS.bg.src && ASSETS.bg.complete) {
-        ctx.drawImage(ASSETS.bg, 0, 0, canvas.width, canvas.height);
+    const activeDumpling = entities.find(e => e.type === 'dumpling');
+    if (activeDumpling && gameState === "PLAYING") {
+        uiLetter.innerText = activeDumpling.letter;
+        uiLetter.style.color = "#ffd700";
     } else {
-        ctx.fillStyle = '#557A46'; // Default green
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        uiLetter.innerText = "-";
+        uiLetter.style.color = "#fff";
     }
-
-    // 3. Draw Lanes & Eat Zone
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
-    LANES.forEach(x => ctx.fillRect(x - 40, 0, 80, canvas.height));
-
-    ctx.fillStyle = 'rgba(255, 215, 0, 0.3)'; // Golden eat zone
-    ctx.fillRect(0, EAT_ZONE_Y, canvas.width, EAT_ZONE_HEIGHT);
-    ctx.strokeStyle = '#FFD700';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(0, EAT_ZONE_Y, canvas.width, EAT_ZONE_HEIGHT);
-
-    // 4. Draw Po (Bottom Center)
-    const poSize = 120;
-    if (ASSETS.panda.src && ASSETS.panda.complete) {
-        // Draw Panda stretching across lanes based on action could be added later!
-        // For now, static center.
-        ctx.drawImage(ASSETS.panda, canvas.width / 2 - poSize / 2, canvas.height - poSize, poSize, poSize);
-    } else {
-        ctx.fillStyle = 'white'; // Placeholder Po
-        ctx.fillRect(canvas.width / 2 - poSize / 2, canvas.height - poSize, poSize, poSize);
-        ctx.fillStyle = 'black';
-        ctx.fillText("PO", canvas.width / 2 - 15, canvas.height - poSize / 2);
-    }
-
-    // 5. Draw Dumplings & Combos
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 20px Courier New';
-
-    state.dumplings.forEach(d => {
-        // Draw sprite or circle
-        if (ASSETS.dumpling.src && ASSETS.dumpling.complete) {
-            ctx.drawImage(ASSETS.dumpling, d.x - 30, d.y - 30, 60, 60);
-        } else {
-            ctx.fillStyle = '#F4E0B9';
-            ctx.beginPath();
-            ctx.arc(d.x, d.y, 25, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.stroke();
-        }
-
-        // Draw Combo Text
-        const textY = d.y - 40;
-        // Calculate total width to center the combo text
-        const spacing = 20;
-        const totalWidth = (d.combo.length - 1) * spacing;
-        const startX = d.x - (totalWidth / 2);
-
-        d.combo.forEach((key, index) => {
-            // Green if already pressed, Black/White if pending
-            ctx.fillStyle = index < d.progress ? '#00FF00' : '#FFFFFF';
-            // Add a black outline for readability
-            ctx.strokeText(key, startX + (index * spacing), textY);
-            ctx.fillText(key, startX + (index * spacing), textY);
-        });
-    });
-
-    requestAnimationFrame(gameLoop);
 }
 
-// Initialize
-state.lastTime = performance.now();
-requestAnimationFrame(gameLoop);
+function spawnEntity() {
+    if (gameState !== "PLAYING") return;
+
+    // SCALING DIFFICULTY: Increases based on score AND current level
+    const dynamicDifficulty = currentLevel + (score / 40);
+
+    const isBomb = Math.random() < 0.35;
+
+    // As difficulty goes up, flight time drops (objects move faster)
+    // Capped at 25 frames so it never becomes mathematically impossible
+    const flightTime = Math.max(25, 70 - (dynamicDifficulty * 4.5));
+    const gravity = 0.4 + (dynamicDifficulty * 0.05);
+
+    let landingX;
+    if (isBomb) {
+        landingX = player.x + (player.w / 2);
+        if (Math.random() < 0.3) {
+            AUDIO.shifuYell.currentTime = 0;
+            AUDIO.shifuYell.play();
+        }
+    } else {
+        landingX = Math.random() * 700 + 100;
+    }
+
+    const startX = master.x;
+    const startY = master.y + 40;
+
+    const vx = (landingX - startX) / flightTime;
+    const vy = (GROUND_Y - startY - 0.5 * gravity * flightTime * flightTime) / flightTime;
+
+    entities.push({
+        x: startX,
+        y: startY,
+        vx: vx,
+        vy: vy,
+        gravity: gravity,
+        landingX: landingX,
+        type: isBomb ? 'bomb' : 'dumpling',
+        letter: isBomb ? null : letters[Math.floor(Math.random() * letters.length)]
+    });
+
+    master.currentSprite = 'masterThrow';
+    master.actionTimer = 25;
+
+    // Time between throws gets shorter
+    let nextSpawn = Math.max(450, 2000 - (dynamicDifficulty * 180));
+    spawnTimer = setTimeout(spawnEntity, nextSpawn);
+}
+
+function triggerShake() {
+    container.classList.remove('shake');
+    void container.offsetWidth;
+    container.classList.add('shake');
+}
+
+// --- 7. INPUT HANDLING ---
+window.addEventListener("keydown", (e) => {
+    if (gameState === "MENU") return;
+
+    if (e.key === "ArrowLeft") keysPressed.ArrowLeft = true;
+    if (e.key === "ArrowRight") keysPressed.ArrowRight = true;
+
+    if (gameState === "START" || gameState === "WIN_ANIM" || gameState === "FAIL_ANIM") {
+        if (gameState === "WIN_ANIM") { currentLevel++; levelGoal += 2; }
+        else if (gameState === "FAIL_ANIM") { score = 0; currentLevel = 1; levelGoal = 8; } // Reset stats on fail
+
+        caughtInLevel = 0; entities = []; hp = 100;
+        player.currentSprite = 'poIdle';
+        player.autoMoveTarget = null;
+        gameState = "PLAYING";
+        clearTimeout(spawnTimer);
+        spawnEntity();
+        updateUI();
+        return;
+    }
+
+    const pressed = e.key.toUpperCase();
+    if (letters.includes(pressed)) {
+        let targetDumplings = entities.filter(ent => ent.type === 'dumpling' && ent.letter === pressed);
+
+        if (targetDumplings.length > 0) {
+            targetDumplings.sort((a, b) => b.y - a.y);
+            const target = targetDumplings[0];
+
+            player.autoMoveTarget = target.landingX - (player.w / 2);
+            player.currentSprite = 'poPose2';
+        }
+    }
+});
+
+window.addEventListener("keyup", (e) => {
+    if (e.key === "ArrowLeft") keysPressed.ArrowLeft = false;
+    if (e.key === "ArrowRight") keysPressed.ArrowRight = false;
+});
+
+// --- 8. MAIN GAME LOOP ---
+function update() {
+    if (gameState === "MENU" || imagesLoaded < totalImages) return;
+
+    // Only clear the canvas. DO NOT draw the background image anymore,
+    // so the video behind it is visible!
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Calculate dynamic player speed so Po can keep up with the faster game
+    const currentSpeed = player.baseSpeed + (score / 30);
+
+    // --- PLAYER MOVEMENT SYSTEM ---
+    if (gameState === "PLAYING") {
+        if (keysPressed.ArrowLeft || keysPressed.ArrowRight) {
+            player.autoMoveTarget = null;
+            if (keysPressed.ArrowLeft) player.x -= currentSpeed;
+            if (keysPressed.ArrowRight) player.x += currentSpeed;
+        }
+        else if (player.autoMoveTarget !== null) {
+            const distance = player.autoMoveTarget - player.x;
+
+            if (Math.abs(distance) <= currentSpeed) {
+                player.x = player.autoMoveTarget;
+                player.autoMoveTarget = null;
+                player.currentSprite = 'poPose1';
+            } else {
+                player.x += Math.sign(distance) * currentSpeed;
+            }
+        }
+
+        if (player.x < 10) player.x = 10;
+        if (player.x > canvas.width - 250) player.x = canvas.width - 250;
+    }
+
+    if (player.actionTimer > 0) {
+        player.actionTimer--;
+        if (player.actionTimer <= 0 && gameState === "PLAYING" && player.autoMoveTarget === null) {
+            player.currentSprite = 'poIdle';
+        }
+    }
+    if (master.actionTimer > 0) {
+        master.actionTimer--;
+        if (master.actionTimer <= 0) master.currentSprite = 'masterIdle';
+    }
+
+    // --- DRAW CHARACTERS ---
+    ctx.drawImage(IMAGES[master.currentSprite], master.x, master.y, master.w, master.h);
+    ctx.drawImage(IMAGES[player.currentSprite], player.x, player.y, player.w, player.h);
+
+    if (gameState === "PLAYING") {
+        updateUI();
+
+        for (let i = entities.length - 1; i >= 0; i--) {
+            let e = entities[i];
+
+            e.vy += e.gravity;
+            e.x += e.vx;
+            e.y += e.vy;
+
+            const heightFromGround = Math.max(0, GROUND_Y - e.y);
+            const shadowWidth = Math.max(10, 40 - (heightFromGround * 0.1));
+            ctx.fillStyle = "rgba(0,0,0,0.4)";
+            ctx.beginPath(); ctx.ellipse(e.x, GROUND_Y, shadowWidth, shadowWidth / 3, 0, 0, Math.PI * 2); ctx.fill();
+
+            if (e.type === 'bomb') {
+                ctx.fillStyle = "#ff4757";
+                ctx.beginPath(); ctx.arc(e.x, e.y, 22, 0, Math.PI * 2); ctx.fill();
+                ctx.strokeStyle = "#fff"; ctx.lineWidth = 3;
+                ctx.beginPath(); ctx.moveTo(e.x, e.y - 22); ctx.lineTo(e.x + 10, e.y - 35); ctx.stroke();
+            } else {
+                ctx.drawImage(IMAGES.dumpling, e.x - 30, e.y - 30, 60, 60);
+
+                ctx.fillStyle = "white";
+                ctx.font = "bold 24px Arial";
+                ctx.textAlign = "center";
+                ctx.strokeStyle = "black";
+                ctx.lineWidth = 4;
+                ctx.strokeText(e.letter, e.x, e.y + 8);
+                ctx.fillText(e.letter, e.x, e.y + 8);
+            }
+
+            // --- HIT DETECTION / CATCHING ---
+            if (e.y >= GROUND_Y) {
+                const poCenterX = player.x + (player.w / 2);
+
+                if (e.type === 'bomb') {
+                    if (Math.abs(e.x - poCenterX) < 70) {
+                        gameState = "FAIL_ANIM";
+                        player.currentSprite = 'poHurt';
+                        triggerShake();
+                    } else {
+                        ctx.drawImage(IMAGES.hit, e.x - 40, GROUND_Y - 40, 80, 80);
+                    }
+                } else if (e.type === 'dumpling') {
+                    if (Math.abs(e.x - poCenterX) < 75) {
+                        caughtInLevel++;
+                        score += 10;
+                        player.currentSprite = 'poPose1';
+                        player.actionTimer = 15;
+                        if (caughtInLevel >= levelGoal) gameState = "WIN_ANIM";
+                    } else {
+                        hp -= 15;
+                        player.currentSprite = 'poHurt';
+                        player.actionTimer = 20;
+                        triggerShake();
+                        if (hp <= 0) gameState = "FAIL_ANIM";
+                    }
+                }
+
+                entities.splice(i, 1);
+            }
+        }
+    }
+
+    // --- OVERLAY SCREENS ---
+    if (gameState !== "PLAYING" && gameState !== "MENU") {
+        ctx.fillStyle = "rgba(0,0,0,0.7)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.textAlign = "center";
+
+        if (gameState === "START") {
+            ctx.fillStyle = "#ffd700"; ctx.font = "bold 48px Arial";
+            ctx.fillText("DUMPLING DASH", canvas.width / 2, 250);
+            ctx.fillStyle = "white"; ctx.font = "24px Courier";
+            ctx.fillText("Press ANY KEY to Start", canvas.width / 2, 310);
+            ctx.font = "18px Courier";
+            ctx.fillText("Press Letters (W, A, S, D, E, Q) to Auto-Dash.", canvas.width / 2, 350);
+            ctx.fillStyle = "#ff4757";
+            ctx.fillText("Use LEFT/RIGHT ARROWS to dodge BOMBS!", canvas.width / 2, 380);
+        }
+        else if (gameState === "WIN_ANIM") {
+            ctx.fillStyle = "#2ed573"; ctx.font = "bold 48px Arial";
+            ctx.fillText("LEVEL CLEAR!", canvas.width / 2, 270);
+            ctx.fillStyle = "white"; ctx.font = "24px Courier";
+            ctx.fillText("Press ANY KEY for next level", canvas.width / 2, 330);
+        }
+        else if (gameState === "FAIL_ANIM") {
+            ctx.fillStyle = "#ff4757"; ctx.font = "bold 48px Arial";
+            ctx.fillText("GAME OVER", canvas.width / 2, 270);
+            ctx.fillStyle = "white"; ctx.font = "24px Courier";
+            ctx.fillText("Press ANY KEY to restart", canvas.width / 2, 330);
+        }
+    }
+
+    if (gameState !== "MENU") {
+        requestAnimationFrame(update);
+    }
+}
