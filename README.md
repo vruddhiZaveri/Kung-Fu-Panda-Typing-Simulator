@@ -38,7 +38,7 @@ This game was created as part of a 2-hour game development hackathon at SPIT, wh
 
 ## 📸 Preview
 
-_Add screenshots or gameplay video here._
+<img width="1475" height="695" alt="image" src="https://github.com/user-attachments/assets/cb5d4193-7bd2-4652-bcf9-b57b34149efb" />
 
 ## 🙌 Made With
 
