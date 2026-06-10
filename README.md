@@ -43,3 +43,4 @@ This game was created as part of a 2-hour game development hackathon at SPIT, wh
 ## 🙌 Made With
 
 Creativity, teamwork, and AI-assisted development using Gemini Pro.
+
